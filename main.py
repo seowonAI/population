@@ -1,233 +1,142 @@
+import json
+import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.express as px
+import requests
 import streamlit as st
 
-# 페이지 기본 설정
-st.set_page_config(page_title="동네별 인구 피라미드", layout="wide")
+st.set_page_config(page_title="전국 고령화 단계구분도", layout="wide")
+
+st.title("🗺️ 2026년 전국 시군구별 고령화율 단계구분도")
+st.caption(
+    "주민등록 인구통계 데이터를 바탕으로 시군구별 65세 이상 고령인구 비율(%)을 시각화합니다."
+)
 
 
-# 1. 데이터 불러오기 함수
+# 1. 데이터 로드 (캐싱으로 로딩 속도 최적화)
 @st.cache_data
 def load_data():
-    url = "https://raw.githubusercontent.com/seowonAI/population/main/population_ts_yearly_gender.zip"
+    # GitHub raw URL로 자동 변환
+    csv_url = "https://raw.githubusercontent.com/seowonAI/population/main/population_ts_yearly_gender.zip"
+    geojson_url = "https://raw.githubusercontent.com/seowonAI/population/main/sigungu_kr.geojson.txt"
 
-    # zip 압축 CSV 읽기
-    df = pd.read_csv(url)
+    # 1-1. GeoJSON 로드
+    res = requests.get(geojson_url)
+    res.raise_for_status()
+    geojson_data = res.json()
 
-    # 가장 최근 연도 데이터만 추출
-    latest_year = df["연도"].max()
-    df_latest = df[df["연도"] == latest_year].copy()
+    # 1-2. 인구 데이터 CSV 로드 (ZIP 압축 자동 해제)
+    df = pd.read_csv(csv_url, encoding="utf-8")
 
-    return df_latest, latest_year
+    # 코드를 5자리 문자열로 변환 (앞자리 0 유지를 위해 zfill 적용)
+    df["코드"] = df["코드"].astype(str).str.zfill(5)
+    df["연도"] = df["연도"].astype(str)
 
+    # 2026년 데이터만 필터링
+    df_2026 = df[df["연도"].str.contains("2026")].copy()
 
-# 데이터 로드
-try:
-    df, latest_year = load_data()
-except Exception as e:
-    st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
-    st.stop()
+    # 시군구 코드 (앞 5자리 추출)
+    df_2026["sigungu_code"] = df_2026["코드"].str[:5]
 
-# 애플리케이션 제목
-st.title("🏡 우리 동네 인구 피라미드")
-st.caption(
-    f"가장 최근 데이터인 **{latest_year}년** 전국 읍·면·동 인구 데이터를 기반으로 시각화합니다."
-)
-st.write("---")
+    # '계_'로 시작하는 컬럼만 선택 ('계_0세' ~ '계_100세 이상' 등)
+    total_pop_cols = [
+        col
+        for col in df_2026.columns
+        if col.startswith("계_") and col not in ["계_총인구수"]
+    ]
 
-# 2. 지역 선택 드롭다운 3단계
-col1, col2, col3 = st.columns(3)
+    # 65세 이상 컬럼만 선택 ('계_65세' ~ '계_100세 이상')
+    elderly_cols = []
+    for col in total_pop_cols:
+        age_str = col.replace("계_", "").replace("세", "").replace(" 이상", "")
+        if age_str.isdigit() and int(age_str) >= 65:
+            elderly_cols.append(col)
+        elif "100" in age_str:
+            elderly_cols.append(col)
 
-with col1:
-    sido_list = sorted(df["시도"].dropna().unique())
-    selected_sido = st.selectbox("1. 시·도 선택", sido_list)
+    # 숫자에 쉼표(,)가 포함되어 있을 수 있으므로 정수형 전처리
+    for col in total_pop_cols:
+        if df_2026[col].dtype == object:
+            df_2026[col] = (
+                df_2026[col].astype(str).str.replace(",", "").astype(float)
+            )
 
-df_sido = df[df["시도"] == selected_sido]
+    # 1-3. 시군구별 인구 집계
+    df_2026["전체인구"] = df_2026[total_pop_cols].sum(axis=1)
+    df_2026["고령인구"] = df_2026[elderly_cols].sum(axis=1)
 
-with col2:
-    sigungu_list = sorted(df_sido["시군구"].dropna().unique())
-    selected_sigungu = st.selectbox("2. 시·군·구 선택", sigungu_list)
-
-df_sigungu = df_sido[df_sido["시군구"] == selected_sigungu]
-
-with col3:
-    dong_list = sorted(df_sigungu["동"].dropna().unique())
-    selected_dong = st.selectbox("3. 읍·면·동 선택", dong_list)
-
-# 선택한 동네 데이터
-target_row = df_sigungu[df_sigungu["동"] == selected_dong]
-
-if target_row.empty:
-    st.warning("선택한 지역의 데이터가 없습니다.")
-    st.stop()
-
-selected_data = target_row.iloc[0]
-
-# 3. 나이 카테고리 정의 (0세 ~ 100세 이상)
-age_categories = [f"{i}세" for i in range(100)] + ["100세 이상"]
-
-male_counts = []
-female_counts = []
-
-
-# 안전하게 문자열/숫자를 정수로 변환하는 함수 (콤마 제거 등)
-def parse_int(val):
-    if pd.isna(val):
-        return 0
-    if isinstance(val, (int, float)):
-        return int(val)
-    cleaned_str = str(val).replace(",", "").strip()
-    try:
-        return int(cleaned_str)
-    except ValueError:
-        return 0
-
-
-# 데이터 추출 및 리스트 구성
-for age in age_categories:
-    male_col = f"남_{age}"
-    female_col = f"여_{age}"
-
-    m_val = parse_int(selected_data.get(male_col, 0))
-    f_val = parse_int(selected_data.get(female_col, 0))
-
-    # 남성 인구수는 그래프 배치를 위해 음수로 변환
-    male_counts.append(-abs(m_val))
-    female_counts.append(abs(f_val))
-
-# --- [추가기능 1] 통계 지표 계산 (총인구, 평균연령, 고령화율) ---
-total_pop = 0  # 총 인구수
-total_age_sum = 0  # (나이 * 인구수) 합계 (평균 연령 계산용)
-elderly_pop = 0  # 65세 이상 인구수
-youth_pop = 0  # 0~14세 유소년 인구수
-
-for idx, age_label in enumerate(age_categories):
-    m_pop = -male_counts[idx]
-    f_pop = female_counts[idx]
-    age_pop = m_pop + f_pop
-
-    total_pop += age_pop
-
-    # 100세 이상은 100세로 계산에 포함
-    age_value = 100 if idx == 100 else idx
-    total_age_sum += age_value * age_pop
-
-    # 65세 이상 인구
-    if idx >= 65:
-        elderly_pop += age_pop
-
-    # 0~14세 유소년 인구
-    if idx <= 14:
-        youth_pop += age_pop
-
-# 평균연령 및 고령화율 계산
-avg_age = (total_age_sum / total_pop) if total_pop > 0 else 0
-elderly_ratio = (elderly_pop / total_pop * 100) if total_pop > 0 else 0
-
-# --- [추가기능 2] 상단 지표 카드 3개 배치 ---
-m_col1, m_col2, m_col3 = st.columns(3)
-
-with m_col1:
-    st.metric(label="👥 총인구", value=f"{total_pop:,} 명")
-
-with m_col2:
-    st.metric(label="🎂 평균연령", value=f"{avg_age:.1f} 세")
-
-with m_col3:
-    # 고령화율 20% 이상 시 경고 문구 추가
-    if elderly_ratio >= 20:
-        st.metric(
-            label="👵 고령화율 (65세 이상)",
-            value=f"{elderly_ratio:.1f} %",
-            delta="⚠️ 초고령사회 (20% 이상)",
-            delta_color="inverse",
+    # 시도, 시군구 명칭 가져오기 (첫 번째 행 기준)
+    grouped = (
+        df_2026.groupby("sigungu_code")
+        .agg(
+            {
+                "시도": "first",
+                "시군구": "first",
+                "전체인구": "sum",
+                "고령인구": "sum",
+            }
         )
-    else:
-        st.metric(
-            label="👵 고령화율 (65세 이상)", value=f"{elderly_ratio:.1f} %"
-        )
-
-st.write("")
-
-# 4. Plotly 가로 막대 그래프 그리기
-fig = go.Figure()
-
-# 남성 막대 그래프 (왼쪽)
-fig.add_trace(
-    go.Bar(
-        y=age_categories,
-        x=male_counts,
-        name="남성",
-        orientation="h",
-        marker=dict(color="#6BAED6"),
-        hovertemplate="%{y} 남성: %{customdata:,}명<extra></extra>",
-        customdata=[-val for val in male_counts],
+        .reset_index()
     )
-)
 
-# 여성 막대 그래프 (오른쪽)
-fig.add_trace(
-    go.Bar(
-        y=age_categories,
-        x=female_counts,
-        name="여성",
-        orientation="h",
-        marker=dict(color="#FC9272"),
-        hovertemplate="%{y} 여성: %{x:,}명<extra></extra>",
+    # 고령화율(%) 계산 (소수점 2자리)
+    grouped["고령화율"] = np.where(
+        grouped["전체인구"] > 0,
+        (grouped["고령인구"] / grouped["전체인구"]) * 100,
+        0,
     )
-)
+    grouped["고령화율"] = grouped["고령화율"].round(2)
 
-# 5. 레이아웃 및 세로축 고정 설정
-max_male = max([-x for x in male_counts]) if male_counts else 0
-max_female = max(female_counts) if female_counts else 0
-max_pop = max(max_male, max_female)
-axis_range = max_pop * 1.15 if max_pop > 0 else 100
+    return geojson_data, grouped
+
+
+with st.spinner("데이터를 로드하고 고령화율을 계산 중입니다..."):
+    geojson_data, df_sigungu = load_data()
+
+# 2. Plotly 단계구분도 생성
+fig = px.choropleth_mapbox(
+    df_sigungu,
+    geojson=geojson_data,
+    locations="sigungu_code",  # DataFrame의 시군구 코드
+    featureidkey="properties.코드",  # GeoJSON의 시군구 코드
+    color="고령화율",
+    color_continuous_scale="Reds",  # 고령화율이 높을수록 진한 빨간색
+    range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
+    mapbox_style="white-bg",  # 지도 타일 배경 없이 경계만 표시
+    center={"lat": 35.9, "lon": 127.8},  # 대한민국 중심 좌표
+    zoom=6.2,
+    hover_name="시군구",
+    hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
+    labels={"고령화율": "고령화율(%)", "시도": "시도명"},
+)
 
 fig.update_layout(
-    title=dict(
-        text=f"📊 {selected_sido} {selected_sigungu} {selected_dong} 인구 피라미드 ({latest_year}년)",
-        font=dict(size=20),
-    ),
-    barmode="overlay",
-    bargap=0.1,
-    height=800,
-    legend=dict(x=0.85, y=1.05, orientation="h"),
-    xaxis=dict(
-        title="인구수 (명)",
-        range=[-axis_range, axis_range],
-        tickvals=[
-            -int(axis_range * 0.8),
-            -int(axis_range * 0.4),
-            0,
-            int(axis_range * 0.4),
-            int(axis_range * 0.8),
-        ],
-        ticktext=[
-            f"{int(axis_range * 0.8):,}",
-            f"{int(axis_range * 0.4):,}",
-            "0",
-            f"{int(axis_range * 0.4):,}",
-            f"{int(axis_range * 0.8):,}",
-        ],
-    ),
-    yaxis=dict(
-        title="나이",
-        type="category",
-        categoryorder="array",
-        categoryarray=age_categories,
-    ),
-    template="plotly_white",
+    margin={"r": 0, "t": 0, "l": 0, "b": 0},
+    height=750,
+    coloraxis_colorbar=dict(title="고령화율 (%)", suffix="%"),
 )
 
-# 6. 화면 출력
+# 3. Streamlit 화면 출력
 st.plotly_chart(fig, use_container_width=True)
 
-# --- [추가기능 3] 피라미드 아래 동네 인구 특성 자동 한 줄 분석 문구 ---
-if youth_pop > elderly_pop:
-    summary_text = f"💡 **{selected_dong}**은(는) 유소년(0~14세) 인구 비율이 어르신(65세 이상)보다 높아 **아이가 상대적으로 많은 젊은 지역**입니다."
-elif elderly_pop > youth_pop:
-    summary_text = f"💡 **{selected_dong}**은(는) 65세 이상 어르신 인구 비율이 높아서 **어르신이 상대적으로 많은 지역**입니다."
-else:
-    summary_text = f"💡 **{selected_dong}**은(는) 아이(0~14세)와 어르신(65세 이상)의 비율이 비슷하게 균형을 이루는 지역입니다."
-
-st.info(summary_text)
+# 주요 요약 메트릭 표시
+col1, col2, col3 = st.columns(3)
+with col1:
+    max_row = df_sigungu.loc[df_sigungu["고령화율"].idxmax()]
+    st.metric(
+        "고령화율 최고 지역",
+        f"{max_row['시도']} {max_row['시군구']}",
+        f"{max_row['고령화율']}%",
+    )
+with col2:
+    min_row = df_sigungu.loc[df_sigungu["고령화율"].idxmin()]
+    st.metric(
+        "고령화율 최저 지역",
+        f"{min_row['시도']} {min_row['시군구']}",
+        f"{min_row['고령화율']}%",
+    )
+with col3:
+    avg_rate = round(
+        (df_sigungu["고령인구"].sum() / df_sigungu["전체인구"].sum()) * 100, 2
+    )
+    st.metric("전국 평균 고령화율", f"{avg_rate}%")
