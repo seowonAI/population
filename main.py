@@ -27,7 +27,7 @@ def load_data():
     # 1-2. CSV 로드
     df = pd.read_csv(csv_url, encoding="utf-8")
 
-    # 코드 전처리
+    # 코드 전처리 (5자리 문자열)
     df["코드"] = df["코드"].astype(str).str.zfill(5)
     df["연도"] = df["연도"].astype(str)
 
@@ -89,42 +89,31 @@ def load_data():
 with st.spinner("데이터를 로드하고 고령화율을 계산 중입니다..."):
     geojson_data, df_sigungu = load_data()
 
-# 2. Plotly 단계구분도 생성 (choropleth_map 사용)
-try:
-    fig = px.choropleth_map(
-        df_sigungu,
-        geojson=geojson_data,
-        locations="sigungu_code",
-        featureidkey="properties.코드",
-        color="고령화율",
-        color_continuous_scale="Reds",
-        range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
-        map_style="white-bg",
-        center={"lat": 35.9, "lon": 127.8},
-        zoom=6.2,
-        hover_name="시군구",
-        hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
-        labels={"고령화율": "고령화율(%)", "시도": "시도명"},
-    )
-except AttributeError:
-    # Plotly 버전에 따라 px.choropleth 대체 처리
-    fig = px.choropleth(
-        df_sigungu,
-        geojson=geojson_data,
-        locations="sigungu_code",
-        featureidkey="properties.코드",
-        color="고령화율",
-        color_continuous_scale="Reds",
-        hover_name="시군구",
-        hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
-        labels={"고령화율": "고령화율(%)", "시도": "시도명"},
-    )
-    fig.update_geos(fitbounds="locations", visible=False)
+# 2. Plotly 단계구분도 생성 (mapbox 기반)
+fig = px.choropleth_mapbox(
+    df_sigungu,
+    geojson=geojson_data,
+    locations="sigungu_code",
+    featureidkey="properties.코드",
+    color="고령화율",
+    color_continuous_scale="Reds",
+    range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
+    mapbox_style="carto-positron",  # 지도 배경 타일 표시
+    center={"lat": 35.9, "lon": 127.8},
+    zoom=6.2,
+    hover_name="시군구",
+    hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
+    labels={"고령화율": "고령화율(%)", "시도": "시도명"},
+)
 
+# 레이아웃 수정 (오류 발생 원인 속성 제거 및 안전한 구조 적용)
 fig.update_layout(
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
     height=750,
-    coloraxis_colorbar=dict(title="고령화율 (%)", suffix="%"),
+    coloraxis_colorbar=dict(
+        title="고령화율(%)",
+        ticksuffix="%",
+    ),
 )
 
 # 3. Streamlit 화면 출력
