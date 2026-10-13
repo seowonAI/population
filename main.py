@@ -51,7 +51,7 @@ def load_data():
         elif "100" in age_str:
             elderly_cols.append(col)
 
-    # 쉼표(,) 제거 및 정수 변환
+    # 쉼표(,) 제거 및 숫자 변환
     for col in total_pop_cols:
         if df_2026[col].dtype == object:
             df_2026[col] = (
@@ -89,8 +89,8 @@ def load_data():
 with st.spinner("데이터를 로드하고 고령화율을 계산 중입니다..."):
     geojson_data, df_sigungu = load_data()
 
-# 2. Plotly 단계구분도 생성 (mapbox 기반)
-fig = px.choropleth_mapbox(
+# 2. Plotly 단계구분도 생성 (px.choropleth_map 사용)
+fig = px.choropleth_map(
     df_sigungu,
     geojson=geojson_data,
     locations="sigungu_code",
@@ -98,7 +98,7 @@ fig = px.choropleth_mapbox(
     color="고령화율",
     color_continuous_scale="Reds",
     range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
-    mapbox_style="carto-positron",  # 지도 배경 타일 표시
+    map_style="carto-positron",  # 오픈소스 타일 지도
     center={"lat": 35.9, "lon": 127.8},
     zoom=6.2,
     hover_name="시군구",
@@ -106,7 +106,6 @@ fig = px.choropleth_mapbox(
     labels={"고령화율": "고령화율(%)", "시도": "시도명"},
 )
 
-# 레이아웃 수정 (오류 발생 원인 속성 제거 및 안전한 구조 적용)
 fig.update_layout(
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
     height=750,
