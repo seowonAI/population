@@ -101,9 +101,8 @@ fig.add_trace(
         name="남성",
         orientation="h",
         marker=dict(color="#6BAED6"),  # 부드러운 따뜻한 파란톤
-        # 마우스 호버 시 보여줄 텍스트 (양수 형태로 표시)
         hovertemplate="%{y} 남성: %{customdata:,}명<extra></extra>",
-        customdata=[-val for val in male_counts],
+        customdata=[-val for val in male_counts],  # 괄호 닫기 수정완료
     )
 )
 
@@ -120,36 +119,4 @@ fig.add_trace(
 )
 
 # 5. 그래프 레이아웃 및 세로축 순서 고정 설정
-# 가로축 축 범위 계산 (최대 인구수에 맞추어 좌우 대칭)
-max_pop = max(max([-x for x in male_counts]), max(female_counts))
-axis_range = max_pop * 1.15 if max_pop > 0 else 100
-
-fig.update_layout(
-    title=dict(
-        text=f"📊 {selected_sido} {selected_sigungu} {selected_dong} 인구 피라미드 ({latest_year}년)",
-        font=dict(size=20),
-    ),
-    barmode="overlay",  # 두 막대를 중심 기준으로 포개어 표시
-    bargap=0.1,  # 막대 간격
-    height=800,  # 그래프 높이 (100개 이상의 나이 눈금이 잘 보이도록 설정)
-    legend=dict(x=0.85, y=1.05, orientation="h"),
-    xaxis=dict(
-        title="인구수 (명)",
-        range=[-axis_range, axis_range],  # 좌우 대칭 범위를 설정
-        # 음수 표기를 양수로 변환하여 축에 표시
-        tickvals=[
-            -int(axis_range * 0.8),
-            -int(axis_range * 0.4),
-            0,
-            int(axis_range * 0.4),
-            int(axis_range * 0.8),
-        ],
-        ticktext=[
-            f"{int(axis_range * 0.8):,}",
-            f"{int(axis_range * 0.4):,}",
-            "0",
-            f"{int(axis_range * 0.4):,}",
-            f"{int(axis_range * 0.8):,}",
-        ],
-    ),
-    yaxis
+# 가로축 축 범위 계산 (최대 인
