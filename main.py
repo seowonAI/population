@@ -76,7 +76,6 @@ def parse_int(val):
         return 0
     if isinstance(val, (int, float)):
         return int(val)
-    # 문자열에 콤마가 있을 경우 제거 후 변환
     cleaned_str = str(val).replace(",", "").strip()
     try:
         return int(cleaned_str)
@@ -84,7 +83,7 @@ def parse_int(val):
         return 0
 
 
-# 데이터 추출
+# 데이터 추출 및 리스트 구성
 for age in age_categories:
     male_col = f"남_{age}"
     female_col = f"여_{age}"
@@ -92,83 +91,44 @@ for age in age_categories:
     m_val = parse_int(selected_data.get(male_col, 0))
     f_val = parse_int(selected_data.get(female_col, 0))
 
-    # 남성 인구수는 왼쪽 배치를 위해 음수로 변환
+    # 남성 인구수는 그래프 배치를 위해 음수로 변환
     male_counts.append(-abs(m_val))
     female_counts.append(abs(f_val))
 
-# 4. Plotly 가로 막대 그래프 그리기
-fig = go.Figure()
+# --- [추가기능 1] 통계 지표 계산 (총인구, 평균연령, 고령화율) ---
+total_pop = 0  # 총 인구수
+total_age_sum = 0  # (나이 * 인구수) 합계 (평균 연령 계산용)
+elderly_pop = 0  # 65세 이상 인구수
+youth_pop = 0  # 0~14세 유소년 인구수
 
-# 남성 막대 그래프 (왼쪽)
-fig.add_trace(
-    go.Bar(
-        y=age_categories,
-        x=male_counts,
-        name="남성",
-        orientation="h",
-        marker=dict(color="#6BAED6"),
-        hovertemplate="%{y} 남성: %{customdata:,}명<extra></extra>",
-        customdata=[-val for val in male_counts],
-    )
-)
+for idx, age_label in enumerate(age_categories):
+    m_pop = -male_counts[idx]
+    f_pop = female_counts[idx]
+    age_pop = m_pop + f_pop
 
-# 여성 막대 그래프 (오른쪽)
-fig.add_trace(
-    go.Bar(
-        y=age_categories,
-        x=female_counts,
-        name="여성",
-        orientation="h",
-        marker=dict(color="#FC9272"),
-        hovertemplate="%{y} 여성: %{x:,}명<extra></extra>",
-    )
-)
+    total_pop += age_pop
 
-# 5. 레이아웃 및 세로축 고정 설정
-max_male = max([-x for x in male_counts]) if male_counts else 0
-max_female = max(female_counts) if female_counts else 0
-max_pop = max(max_male, max_female)
-axis_range = max_pop * 1.15 if max_pop > 0 else 100
+    # 100세 이상은 100세로 계산에 포함
+    age_value = 100 if idx == 100 else idx
+    total_age_sum += age_value * age_pop
 
-fig.update_layout(
-    title=dict(
-        text=f"📊 {selected_sido} {selected_sigungu} {selected_dong} 인구 피라미드 ({latest_year}년)",
-        font=dict(size=20),
-    ),
-    barmode="overlay",
-    bargap=0.1,
-    height=800,
-    legend=dict(x=0.85, y=1.05, orientation="h"),
-    xaxis=dict(
-        title="인구수 (명)",
-        range=[-axis_range, axis_range],
-        tickvals=[
-            -int(axis_range * 0.8),
-            -int(axis_range * 0.4),
-            0,
-            int(axis_range * 0.4),
-            int(axis_range * 0.8),
-        ],
-        ticktext=[
-            f"{int(axis_range * 0.8):,}",
-            f"{int(axis_range * 0.4):,}",
-            "0",
-            f"{int(axis_range * 0.4):,}",
-            f"{int(axis_range * 0.8):,}",
-        ],
-    ),
-    yaxis=dict(
-        title="나이",
-        type="category",
-        categoryorder="array",
-        categoryarray=age_categories,
-    ),
-    template="plotly_white",
-)
+    # 65세 이상 인구
+    if idx >= 65:
+        elderly_pop += age_pop
 
-# 6. 화면 출력
-st.plotly_chart(fig, use_container_width=True)
+    # 0~14세 유소년 인구
+    if idx <= 14:
+        youth_pop += age_pop
 
-st.info(
-    "💡 Tip: 그래프 오른쪽 위의 도구 모음을 이용해 확대한 후 살펴보거나 이미지로 저장할 수 있습니다."
-)
+# 평균연령 및 고령화율 계산
+avg_age = (total_age_sum / total_pop) if total_pop > 0 else 0
+elderly_ratio = (elderly_pop / total_pop * 100) if total_pop > 0 else 0
+
+# --- [추가기능 2] 상단 지표 카드 3개 배치 ---
+m_col1, m_col2, m_col3 = st.columns(3)
+
+with m_col1:
+    st.metric(label="👥 총인구", value=f"{total_pop:,} 명")
+
+with m_col2:
+    st.metric(label="🎂 평균
