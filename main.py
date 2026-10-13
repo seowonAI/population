@@ -131,4 +131,103 @@ with m_col1:
     st.metric(label="👥 총인구", value=f"{total_pop:,} 명")
 
 with m_col2:
-    st.metric(label="🎂 평균
+    st.metric(label="🎂 평균연령", value=f"{avg_age:.1f} 세")
+
+with m_col3:
+    # 고령화율 20% 이상 시 경고 문구 추가
+    if elderly_ratio >= 20:
+        st.metric(
+            label="👵 고령화율 (65세 이상)",
+            value=f"{elderly_ratio:.1f} %",
+            delta="⚠️ 초고령사회 (20% 이상)",
+            delta_color="inverse",
+        )
+    else:
+        st.metric(
+            label="👵 고령화율 (65세 이상)", value=f"{elderly_ratio:.1f} %"
+        )
+
+st.write("")
+
+# 4. Plotly 가로 막대 그래프 그리기
+fig = go.Figure()
+
+# 남성 막대 그래프 (왼쪽)
+fig.add_trace(
+    go.Bar(
+        y=age_categories,
+        x=male_counts,
+        name="남성",
+        orientation="h",
+        marker=dict(color="#6BAED6"),
+        hovertemplate="%{y} 남성: %{customdata:,}명<extra></extra>",
+        customdata=[-val for val in male_counts],
+    )
+)
+
+# 여성 막대 그래프 (오른쪽)
+fig.add_trace(
+    go.Bar(
+        y=age_categories,
+        x=female_counts,
+        name="여성",
+        orientation="h",
+        marker=dict(color="#FC9272"),
+        hovertemplate="%{y} 여성: %{x:,}명<extra></extra>",
+    )
+)
+
+# 5. 레이아웃 및 세로축 고정 설정
+max_male = max([-x for x in male_counts]) if male_counts else 0
+max_female = max(female_counts) if female_counts else 0
+max_pop = max(max_male, max_female)
+axis_range = max_pop * 1.15 if max_pop > 0 else 100
+
+fig.update_layout(
+    title=dict(
+        text=f"📊 {selected_sido} {selected_sigungu} {selected_dong} 인구 피라미드 ({latest_year}년)",
+        font=dict(size=20),
+    ),
+    barmode="overlay",
+    bargap=0.1,
+    height=800,
+    legend=dict(x=0.85, y=1.05, orientation="h"),
+    xaxis=dict(
+        title="인구수 (명)",
+        range=[-axis_range, axis_range],
+        tickvals=[
+            -int(axis_range * 0.8),
+            -int(axis_range * 0.4),
+            0,
+            int(axis_range * 0.4),
+            int(axis_range * 0.8),
+        ],
+        ticktext=[
+            f"{int(axis_range * 0.8):,}",
+            f"{int(axis_range * 0.4):,}",
+            "0",
+            f"{int(axis_range * 0.4):,}",
+            f"{int(axis_range * 0.8):,}",
+        ],
+    ),
+    yaxis=dict(
+        title="나이",
+        type="category",
+        categoryorder="array",
+        categoryarray=age_categories,
+    ),
+    template="plotly_white",
+)
+
+# 6. 화면 출력
+st.plotly_chart(fig, use_container_width=True)
+
+# --- [추가기능 3] 피라미드 아래 동네 인구 특성 자동 한 줄 분석 문구 ---
+if youth_pop > elderly_pop:
+    summary_text = f"💡 **{selected_dong}**은(는) 유소년(0~14세) 인구 비율이 어르신(65세 이상)보다 높아 **아이가 상대적으로 많은 젊은 지역**입니다."
+elif elderly_pop > youth_pop:
+    summary_text = f"💡 **{selected_dong}**은(는) 65세 이상 어르신 인구 비율이 높아서 **어르신이 상대적으로 많은 지역**입니다."
+else:
+    summary_text = f"💡 **{selected_dong}**은(는) 아이(0~14세)와 어르신(65세 이상)의 비율이 비슷하게 균형을 이루는 지역입니다."
+
+st.info(summary_text)
