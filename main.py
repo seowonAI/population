@@ -13,10 +13,9 @@ st.caption(
 )
 
 
-# 1. 데이터 로드 (캐싱으로 로딩 속도 최적화)
+# 1. 데이터 로드 (캐싱 적용)
 @st.cache_data
 def load_data():
-    # GitHub raw URL로 자동 변환
     csv_url = "https://raw.githubusercontent.com/seowonAI/population/main/population_ts_yearly_gender.zip"
     geojson_url = "https://raw.githubusercontent.com/seowonAI/population/main/sigungu_kr.geojson.txt"
 
@@ -25,27 +24,25 @@ def load_data():
     res.raise_for_status()
     geojson_data = res.json()
 
-    # 1-2. 인구 데이터 CSV 로드 (ZIP 압축 자동 해제)
+    # 1-2. CSV 로드
     df = pd.read_csv(csv_url, encoding="utf-8")
 
-    # 코드를 5자리 문자열로 변환 (앞자리 0 유지를 위해 zfill 적용)
+    # 코드 전처리
     df["코드"] = df["코드"].astype(str).str.zfill(5)
     df["연도"] = df["연도"].astype(str)
 
-    # 2026년 데이터만 필터링
+    # 2026년 데이터 필터링
     df_2026 = df[df["연도"].str.contains("2026")].copy()
-
-    # 시군구 코드 (앞 5자리 추출)
     df_2026["sigungu_code"] = df_2026["코드"].str[:5]
 
-    # '계_'로 시작하는 컬럼만 선택 ('계_0세' ~ '계_100세 이상' 등)
+    # '계_' 시작 컬럼 필터링 (계_총인구수 제외)
     total_pop_cols = [
         col
         for col in df_2026.columns
         if col.startswith("계_") and col not in ["계_총인구수"]
     ]
 
-    # 65세 이상 컬럼만 선택 ('계_65세' ~ '계_100세 이상')
+    # 65세 이상 컬럼
     elderly_cols = []
     for col in total_pop_cols:
         age_str = col.replace("계_", "").replace("세", "").replace(" 이상", "")
@@ -54,18 +51,17 @@ def load_data():
         elif "100" in age_str:
             elderly_cols.append(col)
 
-    # 숫자에 쉼표(,)가 포함되어 있을 수 있으므로 정수형 전처리
+    # 쉼표(,) 제거 및 정수 변환
     for col in total_pop_cols:
         if df_2026[col].dtype == object:
             df_2026[col] = (
                 df_2026[col].astype(str).str.replace(",", "").astype(float)
             )
 
-    # 1-3. 시군구별 인구 집계
+    # 1-3. 시군구별 인구 합산
     df_2026["전체인구"] = df_2026[total_pop_cols].sum(axis=1)
     df_2026["고령인구"] = df_2026[elderly_cols].sum(axis=1)
 
-    # 시도, 시군구 명칭 가져오기 (첫 번째 행 기준)
     grouped = (
         df_2026.groupby("sigungu_code")
         .agg(
@@ -79,7 +75,7 @@ def load_data():
         .reset_index()
     )
 
-    # 고령화율(%) 계산 (소수점 2자리)
+    # 고령화율(%) 계산
     grouped["고령화율"] = np.where(
         grouped["전체인구"] > 0,
         (grouped["고령인구"] / grouped["전체인구"]) * 100,
@@ -93,22 +89,37 @@ def load_data():
 with st.spinner("데이터를 로드하고 고령화율을 계산 중입니다..."):
     geojson_data, df_sigungu = load_data()
 
-# 2. Plotly 단계구분도 생성
-fig = px.choropleth_mapbox(
-    df_sigungu,
-    geojson=geojson_data,
-    locations="sigungu_code",  # DataFrame의 시군구 코드
-    featureidkey="properties.코드",  # GeoJSON의 시군구 코드
-    color="고령화율",
-    color_continuous_scale="Reds",  # 고령화율이 높을수록 진한 빨간색
-    range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
-    mapbox_style="white-bg",  # 지도 타일 배경 없이 경계만 표시
-    center={"lat": 35.9, "lon": 127.8},  # 대한민국 중심 좌표
-    zoom=6.2,
-    hover_name="시군구",
-    hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
-    labels={"고령화율": "고령화율(%)", "시도": "시도명"},
-)
+# 2. Plotly 단계구분도 생성 (choropleth_map 사용)
+try:
+    fig = px.choropleth_map(
+        df_sigungu,
+        geojson=geojson_data,
+        locations="sigungu_code",
+        featureidkey="properties.코드",
+        color="고령화율",
+        color_continuous_scale="Reds",
+        range_color=(df_sigungu["고령화율"].min(), df_sigungu["고령화율"].max()),
+        map_style="white-bg",
+        center={"lat": 35.9, "lon": 127.8},
+        zoom=6.2,
+        hover_name="시군구",
+        hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
+        labels={"고령화율": "고령화율(%)", "시도": "시도명"},
+    )
+except AttributeError:
+    # Plotly 버전에 따라 px.choropleth 대체 처리
+    fig = px.choropleth(
+        df_sigungu,
+        geojson=geojson_data,
+        locations="sigungu_code",
+        featureidkey="properties.코드",
+        color="고령화율",
+        color_continuous_scale="Reds",
+        hover_name="시군구",
+        hover_data={"sigungu_code": False, "시도": True, "고령화율": ":.2f%"},
+        labels={"고령화율": "고령화율(%)", "시도": "시도명"},
+    )
+    fig.update_geos(fitbounds="locations", visible=False)
 
 fig.update_layout(
     margin={"r": 0, "t": 0, "l": 0, "b": 0},
@@ -119,7 +130,7 @@ fig.update_layout(
 # 3. Streamlit 화면 출력
 st.plotly_chart(fig, use_container_width=True)
 
-# 주요 요약 메트릭 표시
+# 요약 카드
 col1, col2, col3 = st.columns(3)
 with col1:
     max_row = df_sigungu.loc[df_sigungu["고령화율"].idxmax()]
