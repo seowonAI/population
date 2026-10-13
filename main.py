@@ -250,8 +250,16 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# 8. 미매칭 행정구역 안내 문구
+# 8. 미매칭 행정구역 안내 문구 (들여쓰기 수정 완료)
 if missing_codes:
     missing_names = []
     for f in geojson_data["features"]:
         if f["properties"]["코드"] in missing_codes:
+            missing_names.append(
+                f"{f['properties'].get('시도', '')} {f['properties'].get('시군구', '')}".strip()
+            )
+
+    st.caption(
+        f"ℹ️ **안내**: 선택하신 {selected_year}년 데이터 기준, 행정구역 미매칭 또는 데이터 부재로 회색으로 표시된 지역이 있습니다. "
+        f"({', '.join(sorted(set(missing_names))[:10])} 등 총 {len(missing_codes)}개 구역)"
+    )
