@@ -31,24 +31,17 @@ def load_base_data():
     df["코드"] = df["코드"].astype(str).str.zfill(5)
     df["연도"] = df["연도"].astype(str).str.extract(r"(\d{4})")[0]
 
-    # 행정구역 개편 예외 처리 (옛 시도 코드 및 특정 군 보정)
-    # 1) 시군구 코드 앞 5자리 추출
+    # 시군구 코드 5자리 추출 (Pandas Series 유지)
     sigungu_code = df["코드"].str[:5]
 
-    # 2) 군위군 보정 (47720 -> 27720)
-    sigungu_code = np.where(sigungu_code == "47720", "27720", sigungu_code)
+    # 행정구역 개편 예외 처리
+    # 1) 군위군 보정 (47720 -> 27720)
+    sigungu_code = sigungu_code.replace({"47720": "27720"})
 
-    # 3) 강원 특별자치도(42 -> 51), 전북 특별자치도(45 -> 52) 보정
-    sigungu_code = np.where(
-        sigungu_code.str.startswith("42"),
-        "51" + sigungu_code.str[2:],
-        sigungu_code,
-    )
-    sigungu_code = np.where(
-        sigungu_code.str.startswith("45"),
-        "52" + sigungu_code.str[2:],
-        sigungu_code,
-    )
+    # 2) 강원특별자치도(42 -> 51), 전북특별자치도(45 -> 52) 앞 2자리 변경
+    sigungu_code = sigungu_code.str.replace(
+        r"^42", "51", regex=True
+    ).str.replace(r"^45", "52", regex=True)
 
     df["sigungu_code"] = sigungu_code
 
@@ -200,7 +193,6 @@ center = {"lat": 35.9, "lon": 127.8}
 zoom = 6.2
 
 if selected_sido != "전국":
-    # 선택된 시도의 GeoJSON 피처 좌표를 찾아 중심점 계산
     sido_coords = []
     for f in geojson_data["features"]:
         if f["properties"].get("시도") == selected_sido:
@@ -223,16 +215,14 @@ if selected_sido != "전국":
 
 # 6. 지표별 범주 색상 구간(Color Range) 설정
 if "고령화율" in indicator_type:
-    # 연도별 비교를 위해 fixed range (19% ~ 38%)
     color_range = (19, 38)
     color_scale = "Reds"
 else:
-    # 유소년 비율 구간 (낮은 비율에 맞춰 조정: 5% ~ 20%)
     color_range = (5, 20)
     color_scale = "Blues"
 
 
-# 7. Plotly 단계구분도 생성
+# 7. Plotly 단계구분도 생성 (px.choropleth_map)
 fig = px.choropleth_map(
     df_sigungu,
     geojson=geojson_data,
@@ -260,16 +250,8 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# 8. 미매칭 행정구역 회색 표시 관련 안내 문구
+# 8. 미매칭 행정구역 안내 문구
 if missing_codes:
     missing_names = []
     for f in geojson_data["features"]:
         if f["properties"]["코드"] in missing_codes:
-            missing_names.append(
-                f"{f['properties'].get('시도', '')} {f['properties'].get('시군구', '')}".strip()
-            )
-
-    st.caption(
-        f"ℹ️ **안내**: 선택하신 {selected_year}년 데이터 기준, 행정구역 미매칭 또는 데이터 부재로 회색으로 표시된 지역이 있습니다. "
-        f"({', '.join(sorted(set(missing_names))[:10])} 등 총 {len(missing_codes)}개 구역)"
-    )
